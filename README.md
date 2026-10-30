@@ -2,7 +2,7 @@
 
 A lightweight, static website that helps you find the nearest pharmacies that appear to be open right now, based on a Canadian postal code.
 
-![Screenshot placeholder](https://via.placeholder.com/800x400?text=Closest+Open+Pharmacy+Finder)
+![Closest Open Pharmacy Finder screenshot](screenshot.png)
 
 ## Features
 
