@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Closest Open Pharmacy Finder</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://openingh.openstreetmap.de/build/opening_hours+deps.min.js"></script>
+  <style>
+    :root {
+      --primary: #0066cc;
+      --open: #28a745;
+      --closed: #dc3545;
+      --unknown: #6c757d;
+      --bg: #f8f9fa;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: #333;
+      line-height: 1.5;
+    }
+    header {
+      background: var(--primary);
+      color: white;
+      padding: 1.5rem 1rem;
+      text-align: center;
+    }
+    header h1 { margin: 0 0 0.5rem; font-size: 1.8rem; }
+    header p { margin: 0; opacity: 0.9; }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.5rem 1rem;
+    }
+    .search-box {
+      background: var(--card);
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      margin-bottom: 1.5rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .search-box label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      font-size: 0.9rem;
+    }
+    .search-box input {
+      padding: 0.75rem 1rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 1rem;
+      min-width: 180px;
+      flex: 1;
+    }
+    .search-box button {
+      padding: 0.75rem 1.5rem;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .search-box button:hover { background: #0052a3; }
+    .search-box button:disabled { opacity: 0.6; cursor: not-allowed; }
+    #status {
+      margin: 1rem 0;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      display: none;
+    }
+    #status.error { background: #f8d7da; color: #721c24; display: block; }
+    #status.info { background: #d1ecf1; color: #0c5460; display: block; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 1.5rem;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    #map {
+      height: 500px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      background: #e9ecef;
+    }
+    .results {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .pharmacy-card {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .pharmacy-card:hover { background: #f8f9fa; }
+    .pharmacy-card:last-child { border-bottom: none; }
+    .pharmacy-card h3 {
+      margin: 0 0 0.4rem;
+      font-size: 1.1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .distance { color: var(--primary); font-weight: 600; white-space: nowrap; }
+    .status-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-left: 0.5rem;
+    }
+    .status-badge.open { background: #d4edda; color: #155724; }
+    .status-badge.closed { background: #f8d7da; color: #721c24; }
+    .status-badge.unknown { background: #e2e3e5; color: #383d41; }
+    .address, .hours { font-size: 0.9rem; color: #555; margin: 0.25rem 0; }
+    .hours strong { color: #333; }
+    .disclaimer {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #fff3cd;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #856404;
+    }
+    footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: #666;
+      font-size: 0.85rem;
+    }
+    .current-time { font-size: 0.9rem; opacity: 0.9; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Closest Open Pharmacy</h1>
+    <p>Find the nearest pharmacy open right now by Canadian postal code</p>
+    <div class="current-time" id="currentTime"></div>
+  </header>
+
+  <div class="container">
+    <div class="search-box">
+      <div style="flex:1; min-width:200px;">
+        <label for="postal">Postal Code</label>
+        <input type="text" id="postal" placeholder="e.g. M5V 2T6 or M5V2T6" maxlength="7" autocomplete="postal-code">
+      </div>
+      <button id="searchBtn" onclick="findPharmacies()">Find Pharmacies</button>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="layout">
+      <div id="map"></div>
+      <div class="results" id="results">
+        <div style="padding:2rem; text-align:center; color:#666;">
+          Enter a postal code above to find nearby pharmacies.
+        </div>
+      </div>
+    </div>
+
+    <div class="disclaimer">
+      <strong>Disclaimer:</strong> Pharmacy locations and opening hours are sourced from OpenStreetMap and Natural Resources Canada geolocation data. 
+      Data may be incomplete, outdated, or inaccurate. Always call the pharmacy to confirm it is open and has the medication you need before traveling. 
+      This tool is for informational purposes only and is not a substitute for professional medical advice. In an emergency, call 911 or go to the nearest emergency department.
+    </div>
+  </div>
+
+  <footer>
+    Data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a> • Geocoding via Natural Resources Canada • Made with Leaflet
+  </footer>
+
+  <script>
+    // Map initialization
+    const map = L.map('map').setView([43.65, -79.38], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19
+    }).addTo(map);
+
+    let markers = [];
+    let userMarker = null;
+
+    // Update current time
+    function updateTime() {
+      const now = new Date();
+      document.getElementById('currentTime').textContent = 
+        'Current time: ' + now.toLocaleString('en-CA', { timeZone: 'America/Toronto', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    updateTime();
+    setInterval(updateTime, 60000);
+
+    function showStatus(msg, type = 'info') {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = type;
+      el.style.display = 'block';
+    }
+
+    function hideStatus() {
+      document.getElementById('status').style.display = 'none';
+    }
+
+    function haversine(lat1, lon1, lat2, lon2) {
+      const R = 6371; // km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    function isOpenNow(openingHoursStr) {
+      if (!openingHoursStr) return null;
+      try {
+        if (typeof opening_hours === 'undefined') return null;
+        const oh = new opening_hours(openingHoursStr);
+        return oh.getState(); // true if open now
+      } catch (e) {
+        // Simple fallback for common cases
+        const lower = openingHoursStr.toLowerCase();
+        if (lower.includes('24/7') || lower.includes('00:00-24:00') || lower === '24/7') return true;
+        return null;
+      }
+    }
+
+    async function findPharmacies() {
+      const postalInput = document.getElementById('postal').value.trim().toUpperCase().replace(/\s+/g, '');
+      if (!postalInput || postalInput.length < 3) {
+        showStatus('Please enter a valid Canadian postal code (e.g. M5V2T6 or M5V).', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('searchBtn');
+      btn.disabled = true;
+      btn.textContent = 'Searching...';
+      hideStatus();
+      showStatus('Locating postal code and searching for pharmacies...', 'info');
+
+      try {
+        // 1. Geocode postal code
+        const geoRes = await fetch(`https://geolocator.api.geo.ca/?q=${encodeURIComponent(postalInput)}&lang=en`);
+        if (!geoRes.ok) throw new Error('Geocoding failed');
+        const geoData = await geoRes.json();
+
+        // Prefer locate (interpolated centroid) or fsa for postal codes
+        let location = geoData.find(item => item.key === 'locate' && item.category === 'PostalCode') ||
+                       geoData.find(item => item.key === 'fsa') ||
+                       geoData.find(item => item.lat && item.lng);
+
+        if (!location) {
+          throw new Error('Could not find location for this postal code. Try a nearby one or the first 3 characters (FSA).');
+        }
+
+        const userLat = location.lat;
+        const userLng = location.lng;
+        const locationName = location.name || postalInput;
+
+        // Clear previous markers
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+        if (userMarker) map.removeLayer(userMarker);
+
+        userMarker = L.marker([userLat, userLng], {
+          icon: L.divIcon({
+            className: 'user-marker',
+            html: '<div style="background:#0066cc;width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 0 0 2px #0066cc;"></div>',
+            iconSize: [22, 22],
+            iconAnchor: [11, 11]
+          })
+        }).addTo(map).bindPopup(`<b>Your location</b><br>${locationName}`);
+
+        map.setView([userLat, userLng], 14);
+
+        // 2. Query Overpass for pharmacies nearby (5km)
+        const radius = 5000; // meters
+        const overpassQuery = `
+          [out:json][timeout:25];
+          (
+            node["amenity"="pharmacy"](around:${radius},${userLat},${userLng});
+            way["amenity"="pharmacy"](around:${radius},${userLat},${userLng});
+          );
+          out center body;
+        `;
+
+        const overpassRes = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(overpassQuery),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        if (!overpassRes.ok) throw new Error('Pharmacy search failed. Please try again.');
+        const overpassData = await overpassRes.json();
+
+        const elements = overpassData.elements || [];
+        if (elements.length === 0) {
+          showStatus('No pharmacies found within 5 km. Try a different postal code or check back later.', 'error');
+          document.getElementById('results').innerHTML = '<div style="padding:2rem;text-align:center;color:#666;">No pharmacies found nearby.</div>';
+          return;
+        }
+
+        // Process pharmacies
+        const pharmacies = elements.map(el => {
+          const lat = el.lat || el.center?.lat;
+          const lon = el.lon || el.center?.lon;
+          if (!lat || !lon) return null;
+
+          const tags = el.tags || {};
+          const name = tags.name || tags['name:en'] || 'Pharmacy';
+          const address = [
+            tags['addr:housenumber'],
+            tags['addr:street'],
+            tags['addr:city'],
+            tags['addr:postcode']
+          ].filter(Boolean).join(' ') || tags['addr:full'] || 'Address not available';
+
+          const openingHours = tags.opening_hours || tags['opening_hours:covid19'] || null;
+          const isOpen = isOpenNow(openingHours);
+          const distance = haversine(userLat, userLng, lat, lon);
+
+          return { lat, lon, name, address, openingHours, isOpen, distance, tags };
+        }).filter(Boolean);
+
+        // Sort: open first, then by distance
+        pharmacies.sort((a, b) => {
+          if (a.isOpen === true && b.isOpen !== true) return -1;
+          if (b.isOpen === true && a.isOpen !== true) return 1;
+          return a.distance - b.distance;
+        });
+
+        // Display results
+        const resultsEl = document.getElementById('results');
+        resultsEl.innerHTML = '';
+
+        pharmacies.slice(0, 20).forEach((ph, idx) => {
+          const statusClass = ph.isOpen === true ? 'open' : ph.isOpen === false ? 'closed' : 'unknown';
+          const statusText = ph.isOpen === true ? 'Open now' : ph.isOpen === false ? 'Closed' : 'Hours unknown';
+
+          const card = document.createElement('div');
+          card.className = 'pharmacy-card';
+          card.innerHTML = `
+            <h3>
+              <span>${ph.name}</span>
+              <span class="distance">${ph.distance.toFixed(1)} km</span>
+            </h3>
+            <div>
+              <span class="status-badge ${statusClass}">${statusText}</span>
+            </div>
+            <p class="address">${ph.address}</p>
+            ${ph.openingHours ? `<p class="hours"><strong>Hours:</strong> ${ph.openingHours}</p>` : ''}
+          `;
+          card.onclick = () => {
+            map.setView([ph.lat, ph.lon], 16);
+            // Open popup if marker exists
+          };
+          resultsEl.appendChild(card);
+
+          // Add marker
+          const markerColor = ph.isOpen === true ? '#28a745' : ph.isOpen === false ? '#dc3545' : '#6c757d';
+          const marker = L.marker([ph.lat, ph.lon], {
+            icon: L.divIcon({
+              className: 'pharm-marker',
+              html: `<div style="background:${markerColor};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);"></div>`,
+              iconSize: [18, 18],
+              iconAnchor: [9, 9]
+            })
+          }).addTo(map);
+          marker.bindPopup(`
+            <b>${ph.name}</b><br>
+            ${statusText}<br>
+            ${ph.address}<br>
+            ${ph.openingHours ? 'Hours: ' + ph.openingHours : ''}
+            <br><a href="https://www.openstreetmap.org/?mlat=${ph.lat}&mlon=${ph.lon}#map=18/${ph.lat}/${ph.lon}" target="_blank">View on OSM</a>
+          `);
+          markers.push(marker);
+        });
+
+        showStatus(`Found ${pharmacies.length} pharmacies nearby. Green = open now (based on OSM hours). Sorted with open ones first.`, 'info');
+
+        // Fit map to show user + nearest few
+        if (pharmacies.length > 0) {
+          const group = L.featureGroup([userMarker, ...markers.slice(0, 8)]);
+          map.fitBounds(group.getBounds().pad(0.2));
+        }
+
+      } catch (err) {
+        console.error(err);
+        showStatus(err.message || 'Something went wrong. Please try again.', 'error');
+        document.getElementById('results').innerHTML = '<div style="padding:2rem;text-align:center;color:#666;">Search failed. Check your connection and try again.</div>';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Find Pharmacies';
+      }
+    }
+
+    // Allow Enter key
+    document.getElementById('postal').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') findPharmacies();
+    });
+  </script>
+</body>
+</html>
